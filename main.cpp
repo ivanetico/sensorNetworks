@@ -26,6 +26,11 @@
 #include "lora_radio_helper.h"
 #include "mbed.h"
 
+extern float valueSM;
+extern float valueLight;
+extern float temp,hum;
+extern Adafruit_GPS myGPS;
+
 using namespace events;
 
 
@@ -132,11 +137,11 @@ int main (void)
 
     // Initialize LoRaWAN stack
     if (lorawan.initialize(&ev_queue) != LORAWAN_STATUS_OK) {
-        printf("\r\n LoRa initialization failed! \r\n");
+         pc.printf("\r\n LoRa initialization failed! \r\n");
         return -1;
     }
 
-    printf("\r\n Mbed LoRaWANStack initialized \r\n");
+     pc.printf("\r\n Mbed LoRaWANStack initialized \r\n");
 
     // prepare application callbacks
     callbacks.events = mbed::callback(lora_event_handler);
@@ -145,20 +150,20 @@ int main (void)
     // Set number of retries in case of CONFIRMED messages
     if (lorawan.set_confirmed_msg_retries(CONFIRMED_MSG_RETRY_COUNTER)
                                           != LORAWAN_STATUS_OK) {
-        printf("\r\n set_confirmed_msg_retries failed! \r\n\r\n");
+         pc.printf("\r\n set_confirmed_msg_retries failed! \r\n\r\n");
         return -1;
     }
 
-    printf("\r\n CONFIRMED message retries : %d \r\n",
+     pc.printf("\r\n CONFIRMED message retries : %d \r\n",
            CONFIRMED_MSG_RETRY_COUNTER);
 
     // Enable adaptive data rate
     if (lorawan.enable_adaptive_datarate() != LORAWAN_STATUS_OK) {
-        printf("\r\n enable_adaptive_datarate failed! \r\n");
+         pc.printf("\r\n enable_adaptive_datarate failed! \r\n");
         return -1;
     }
 
-    printf("\r\n Adaptive data  rate (ADR) - Enabled \r\n");
+     pc.printf("\r\n Adaptive data  rate (ADR) - Enabled \r\n");
 		
 
     retcode = lorawan.connect();
@@ -166,22 +171,23 @@ int main (void)
     if (retcode == LORAWAN_STATUS_OK ||
         retcode == LORAWAN_STATUS_CONNECT_IN_PROGRESS) {
     } else {
-        printf("\r\n Connection error, code = %d \r\n", retcode);
+         pc.printf("\r\n Connection error, code = %d \r\n", retcode);
         return -1;
     }
 
-    printf("\r\n Connection - In Progress ...\r\n");
+     pc.printf("\r\n Connection - In Progress ...\r\n");
 
     // make your event queue dispatching events forever
-    ev_queue.dispatch_forever();
-
-	pushbutton.rise(changeMode);
+  pushbutton.rise(changeMode);
   thread_analog.start(read_analog);
   thread_i2c.start(read_i2c);
   thread_serial.start(read_serial);
+    
+    ev_queue.dispatch_forever();
+
+
 		
 	while (true) {
-		Thread::State p;
 		
 		switch (mode){
 			case 0:
@@ -196,7 +202,6 @@ int main (void)
 				printAll();
 				break;
 			case 1:
-				p=thread_alarms.get_state();
 				if(thread_alarms.get_state()!= Thread::Running)
 					thread_alarms.start(trigger_alarm);
 				green1 = 0;
@@ -233,30 +238,39 @@ static void send_message()
 {
     uint16_t packet_len;
     int16_t retcode;
-    float sensor_value;
 
-    if (ds1820.begin()) {
+    /*if (ds1820.begin()) {
         ds1820.startConversion();
         sensor_value = ds1820.read();
         ds1820.startConversion();
     } else {
-        printf("\r\n No sensor found \r\n");
+         pc.printf("\r\n No sensor found \r\n");
         return;
-    }
+    }*/
 
-    packet_len = sprintf((char*) tx_buffer, "%3.1f", sensor_value);
-    printf("%3.1f has been sent", sensor_value);
-
+    //packet_len = sprintf((char*) tx_buffer, "%03.1f%03.1f%03.1f", temp, hum, valueSM);
+    memcpy((void*)tx_buffer, (void*)&temp, sizeof(float));
+    memcpy((void*)(tx_buffer + 4), (void*)&hum, sizeof(float));
+    memcpy((void*)(tx_buffer + 8), (void*)&valueSM, sizeof(float));
+    float latitude = 40.423245; //myGPS.latitude/100;
+    float longitude = -3.321572; //myGPS.longitude/100;
+  
+    memcpy((void*)(tx_buffer + 12), (void*)&latitude, sizeof(float));
+    memcpy((void*)(tx_buffer + 16), (void*)&longitude, sizeof(float));
+    for(int j = 0; j<20; j++)
+     pc.printf("%x ", tx_buffer[j]);
+     pc.printf("to send\n");
+    packet_len = 20;
     retcode = lorawan.send(MBED_CONF_LORA_APP_PORT, tx_buffer, packet_len,
                            MSG_CONFIRMED_FLAG);
 
     if (retcode < 0) {
-        retcode == LORAWAN_STATUS_WOULD_BLOCK ? printf("send - WOULD BLOCK\r\n")
-                : printf("\r\n send() - Error code %d \r\n", retcode);
+        retcode == LORAWAN_STATUS_WOULD_BLOCK ?  pc.printf("send - WOULD BLOCK\r\n")
+                :  pc.printf("\r\n send() - Error code %d \r\n", retcode);
         return;
     }
 
-    printf("\r\n %d bytes scheduled for transmission \r\n", retcode);
+     pc.printf("\r\n %d bytes scheduled for transmission \r\n", retcode);
     memset(tx_buffer, 0, sizeof(tx_buffer));
 }
 
@@ -271,17 +285,17 @@ static void receive_message()
                               MSG_CONFIRMED_FLAG|MSG_UNCONFIRMED_FLAG);
 
     if (retcode < 0) {
-        printf("\r\n receive() - Error code %d \r\n", retcode);
+         pc.printf("\r\n receive() - Error code %d \r\n", retcode);
         return;
     }
 
-    printf(" Data:");
+     pc.printf(" Data:");
 
     for (uint8_t i = 0; i < retcode; i++) {
-        printf("%x", rx_buffer[i]);
+         pc.printf("%x", rx_buffer[i]);
     }
 
-    printf("\r\n Data Length: %d\r\n", retcode);
+     pc.printf("\r\n Data Length: %d\r\n", retcode);
 
     memset(rx_buffer, 0, sizeof(rx_buffer));
 }
@@ -293,7 +307,7 @@ static void lora_event_handler(lorawan_event_t event)
 {
     switch (event) {
         case CONNECTED:
-            printf("\r\n Connection - Successful \r\n");
+             pc.printf("\r\n Connection - Successful \r\n");
             if (MBED_CONF_LORA_DUTY_CYCLE_ON) {
                 send_message();
             } else {
@@ -303,10 +317,10 @@ static void lora_event_handler(lorawan_event_t event)
             break;
         case DISCONNECTED:
             ev_queue.break_dispatch();
-            printf("\r\n Disconnected Successfully \r\n");
+             pc.printf("\r\n Disconnected Successfully \r\n");
             break;
         case TX_DONE:
-            printf("\r\n Message Sent to Network Server \r\n");
+             pc.printf("\r\n Message Sent to Network Server \r\n");
             if (MBED_CONF_LORA_DUTY_CYCLE_ON) {
                 send_message();
             }
@@ -315,22 +329,22 @@ static void lora_event_handler(lorawan_event_t event)
         case TX_ERROR:
         case TX_CRYPTO_ERROR:
         case TX_SCHEDULING_ERROR:
-            printf("\r\n Transmission Error - EventCode = %d \r\n", event);
+             pc.printf("\r\n Transmission Error - EventCode = %d \r\n", event);
             // try again
             if (MBED_CONF_LORA_DUTY_CYCLE_ON) {
                 send_message();
             }
             break;
         case RX_DONE:
-            printf("\r\n Received message from Network Server \r\n");
+             pc.printf("\r\n Received message from Network Server \r\n");
             receive_message();
             break;
         case RX_TIMEOUT:
         case RX_ERROR:
-            printf("\r\n Error in reception - Code = %d \r\n", event);
+             pc.printf("\r\n Error in reception - Code = %d \r\n", event);
             break;
         case JOIN_FAILURE:
-            printf("\r\n OTAA Failed - Check Keys \r\n");
+             pc.printf("\r\n OTAA Failed - Check Keys \r\n");
             break;
         default:
             MBED_ASSERT("Unknown Event");
