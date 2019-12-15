@@ -7193,11 +7193,6 @@
               <FilePath>.\TCS34725_colour_sensor.h</FilePath>
             </File>
             <File>
-              <FileName>threadALARMS.cpp</FileName>
-              <FileType>8</FileType>
-              <FilePath>.\threadALARMS.cpp</FilePath>
-            </File>
-            <File>
               <FileName>threadANALOG.cpp</FileName>
               <FileType>8</FileType>
               <FilePath>.\threadANALOG.cpp</FilePath>
@@ -7206,11 +7201,6 @@
               <FileName>threadI2C.cpp</FileName>
               <FileType>8</FileType>
               <FilePath>.\threadI2C.cpp</FilePath>
-            </File>
-            <File>
-              <FileName>types.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>.\types.h</FilePath>
             </File>
           </Files>
         </Group>

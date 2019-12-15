@@ -30,6 +30,8 @@ extern float valueSM;
 extern float valueLight;
 extern float temp,hum;
 extern Adafruit_GPS myGPS;
+extern float accel_data[];
+extern uint16_t CRGB_values[];
 
 using namespace events;
 
@@ -41,7 +43,6 @@ uint8_t tx_buffer[30];
 uint8_t rx_buffer[30];
 
 Serial pc(USBTX, USBRX, 9600); //9600 baudios - used to print some values
-InterruptIn pushbutton(USER_BUTTON);
 DigitalOut green1(LED1); //LED of B-L072Z-LRWAN1 board
 DigitalOut green2(LED2);
 DigitalOut green3(LED3);
@@ -53,17 +54,15 @@ int mode = 0;
 extern Thread thread_i2c;
 extern Thread thread_serial;
 extern Thread thread_analog;
-extern Thread thread_alarms;
 
 extern void read_analog(void);
 extern void read_i2c(void);
 extern void read_serial(void);
-extern void trigger_alarm(void);
 
-extern void printAll();
-extern int saveData();
-extern void printMean_Max_Min();
-extern void advancedMode();
+extern void setRed();
+//extern void setBlue();
+extern void setGreen();
+extern void shutDownLed();
 /*
  * Sets up an application dependent transmission timer in ms. Used only when Duty Cycling is off for testing
  */
@@ -117,12 +116,6 @@ static LoRaWANInterface lorawan(radio);
  * Application specific callbacks
  */
 static lorawan_app_callbacks_t callbacks;
-
-
-void changeMode(){
-	mode += 1;
-	mode %= 3;
-}
 
 /**
  * Entry point for application
@@ -178,55 +171,12 @@ int main (void)
      pc.printf("\r\n Connection - In Progress ...\r\n");
 
     // make your event queue dispatching events forever
-  pushbutton.rise(changeMode);
   thread_analog.start(read_analog);
   thread_i2c.start(read_i2c);
   thread_serial.start(read_serial);
     
     ev_queue.dispatch_forever();
 
-
-		
-	while (true) {
-		
-		switch (mode){
-			case 0:
-				if(thread_alarms.get_state()== Thread::Running)
-					thread_alarms.join();
-				green1 = 1;
-				green2 = 0;
-				green3 = 0;
-				wait(2);
-				pc.printf("Mode %d (0 = test, 1 = normal, 2 = advanced)\r\n", mode);
-
-				printAll();
-				break;
-			case 1:
-				if(thread_alarms.get_state()!= Thread::Running)
-					thread_alarms.start(trigger_alarm);
-				green1 = 0;
-				green2 = 1;
-				green3 = 0;
-				wait(time_interval);
-				pc.printf("Mode %d (0 = test, 1 = normal, 2 = advanced)\r\n", mode);
-				printAll();
-				if (saveData()==numberOfMeasures)
-					printMean_Max_Min();
-				break;
-			case 2:
-				green1 = 0;
-				green2 = 0;
-				green3 = 1;
-
-				advancedMode();
-				wait(1);
-				break;
-			
-			default:
-				wait(2);
-				break;
-		}
-	}
     return 0;
 }
 
@@ -249,18 +199,36 @@ static void send_message()
     }*/
 
     //packet_len = sprintf((char*) tx_buffer, "%03.1f%03.1f%03.1f", temp, hum, valueSM);
-    memcpy((void*)tx_buffer, (void*)&temp, sizeof(float));
-    memcpy((void*)(tx_buffer + 4), (void*)&hum, sizeof(float));
-    memcpy((void*)(tx_buffer + 8), (void*)&valueSM, sizeof(float));
+		uint16_t tempByte = (uint16_t)(temp * 100.0);
+    memcpy((void*)tx_buffer, (void*)&tempByte, sizeof(uint16_t));
+		uint16_t humByte = (uint16_t)(hum * 100.0);
+    memcpy((void*)(tx_buffer + 2), (void*)&humByte, sizeof(uint16_t));
+		uint16_t valueSMByte = (uint16_t) (valueSM * 100.0);
+    memcpy((void*)(tx_buffer + 4), (void*)&valueSMByte, sizeof(uint16_t));
+
     float latitude = 40.423245; //myGPS.latitude/100;
+    memcpy((void*)(tx_buffer + 6), (void*)&latitude, sizeof(float));
     float longitude = -3.321572; //myGPS.longitude/100;
-  
-    memcpy((void*)(tx_buffer + 12), (void*)&latitude, sizeof(float));
-    memcpy((void*)(tx_buffer + 16), (void*)&longitude, sizeof(float));
-    for(int j = 0; j<20; j++)
+    memcpy((void*)(tx_buffer + 10), (void*)&longitude, sizeof(float));
+		uint16_t altitude = 659; //(uint16_t) myGPS.altitude;
+		memcpy((void*)(tx_buffer + 14), (void*) &(altitude), sizeof(uint16_t));
+	
+		uint16_t* RGB_values = CRGB_values +1;
+		memcpy((void*)(tx_buffer + 16), (void*) &(RGB_values), 3*sizeof(uint16_t));
+	
+		int16_t accelX = (int16_t)(accel_data[0] * 10000), accelY = (int16_t)(accel_data[1] * 10000), accelZ = (int16_t)(accel_data[2] * 10000);
+		memcpy((void*)(tx_buffer + 22), (void*)&accelX, sizeof(int16_t));
+		memcpy((void*)(tx_buffer + 24), (void*)&accelY, sizeof(int16_t));
+		memcpy((void*)(tx_buffer + 26), (void*)&accelZ, sizeof(int16_t));
+
+		int16_t light_int = valueLight *100;
+    memcpy((void*)(tx_buffer + 28), (void*)&light_int, sizeof(uint16_t));
+
+
+    for(int j = 0; j<30; j++)
      pc.printf("%x ", tx_buffer[j]);
      pc.printf("to send\n");
-    packet_len = 20;
+    packet_len = 30;
     retcode = lorawan.send(MBED_CONF_LORA_APP_PORT, tx_buffer, packet_len,
                            MSG_CONFIRMED_FLAG);
 
@@ -289,12 +257,19 @@ static void receive_message()
         return;
     }
 
-     pc.printf(" Data:");
+     pc.printf(" Data: ");
 
     for (uint8_t i = 0; i < retcode; i++) {
          pc.printf("%x", rx_buffer[i]);
     }
 
+		if (!strncmp((char*)rx_buffer,"RED",3))
+			setRed();
+		else if(!strncmp((char*)rx_buffer,"GREEN",5))
+			setGreen();
+		else if (!strncmp((char*)rx_buffer,"OFF",3))
+			shutDownLed();
+		
      pc.printf("\r\n Data Length: %d\r\n", retcode);
 
     memset(rx_buffer, 0, sizeof(rx_buffer));
