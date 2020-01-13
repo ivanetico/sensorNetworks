@@ -211,10 +211,10 @@ static void send_message()
     float longitude = -3.321572; //myGPS.longitude/100;
     memcpy((void*)(tx_buffer + 10), (void*)&longitude, sizeof(float));
 		uint16_t altitude = 659; //(uint16_t) myGPS.altitude;
-		memcpy((void*)(tx_buffer + 14), (void*) &(altitude), sizeof(uint16_t));
+		memcpy((void*)(tx_buffer + 14), (void*) &altitude, sizeof(uint16_t));
 	
-		uint16_t* RGB_values = CRGB_values +1;
-		memcpy((void*)(tx_buffer + 16), (void*) &(RGB_values), 3*sizeof(uint16_t));
+		uint16_t* RGB_values = &CRGB_values[1];
+		memcpy((void*)(tx_buffer + 16), (void*) RGB_values, 3*sizeof(uint16_t));
 	
 		int16_t accelX = (int16_t)(accel_data[0] * 10000), accelY = (int16_t)(accel_data[1] * 10000), accelZ = (int16_t)(accel_data[2] * 10000);
 		memcpy((void*)(tx_buffer + 22), (void*)&accelX, sizeof(int16_t));
